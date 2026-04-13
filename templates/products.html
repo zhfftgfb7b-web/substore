@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Products - SubStore Admin{% endblock %}
+{% block content %}
+<h2 class="text-3xl font-bold mb-6">Products</h2>
+<div class="bg-white p-6 rounded-lg shadow">
+    <table class="min-w-full">
+        <thead>
+            <tr class="bg-gray-50">
+                <th class="px-4 py-2 text-left">Name</th>
+                <th class="px-4 py-2">Category</th>
+                <th class="px-4 py-2">Price</th>
+                <th class="px-4 py-2">Duration</th>
+                <th class="px-4 py-2">Active</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for product in products %}
+            <tr class="border-b">
+                <td class="px-4 py-2">{{ product.emoji }} {{ product.name }}</td>
+                <td class="px-4 py-2 text-center">{{ product.category.value }}</td>
+                <td class="px-4 py-2 text-center">{{ product.price }}₽</td>
+                <td class="px-4 py-2 text-center">{{ product.duration_days }} days</td>
+                <td class="px-4 py-2 text-center">
+                    {% if product.is_active %}
+                    <span class="text-green-600">✓</span>
+                    {% else %}
+                    <span class="text-red-600">✗</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

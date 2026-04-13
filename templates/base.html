@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SubStore Admin{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+    <nav class="bg-blue-600 text-white p-4">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-2xl font-bold">SubStore Admin</h1>
+            <div class="space-x-4">
+                <a href="/admin" class="hover:underline">Dashboard</a>
+                <a href="/admin/orders" class="hover:underline">Orders</a>
+                <a href="/admin/products" class="hover:underline">Products</a>
+                <a href="/admin/keys" class="hover:underline">Keys</a>
+                <a href="/admin/users" class="hover:underline">Users</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto p-6">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="bg-gray-800 text-white text-center p-4 mt-8">
+        <p>&copy; 2024 SubStore. All rights reserved.</p>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Orders - SubStore Admin{% endblock %}
+{% block content %}
+<h2 class="text-3xl font-bold mb-6">Orders</h2>
+<div class="bg-white p-6 rounded-lg shadow">
+    <table class="min-w-full">
+        <thead>
+            <tr class="bg-gray-50">
+                <th class="px-4 py-2 text-left">ID</th>
+                <th class="px-4 py-2 text-left">User</th>
+                <th class="px-4 py-2 text-left">Product</th>
+                <th class="px-4 py-2">Amount</th>
+                <th class="px-4 py-2">Status</th>
+                <th class="px-4 py-2">Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for order in orders %}
+            <tr class="border-b">
+                <td class="px-4 py-2">#{{ order.id }}</td>
+                <td class="px-4 py-2">@{{ order.user.username or 'N/A' }}</td>
+                <td class="px-4 py-2">{{ order.product.name }}</td>
+                <td class="px-4 py-2 text-center">{{ order.amount }}₽</td>
+                <td class="px-4 py-2 text-center">{{ order.status.value }}</td>
+                <td class="px-4 py-2 text-center">{{ order.created_at.strftime('%d.%m.%Y') }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
