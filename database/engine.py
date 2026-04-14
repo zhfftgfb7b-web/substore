@@ -17,16 +17,23 @@ class DatabaseEngine:
         Инициализация движка БД
 
         Args:
-            database_url: URL подключения к PostgreSQL (postgresql+asyncpg://...)
+            database_url: URL подключения к PostgreSQL (postgresql+asyncpg://...) или SQLite (sqlite+aiosqlite://...)
             echo: Логировать ли SQL запросы
         """
-        self.engine = create_async_engine(
-            database_url,
-            echo=echo,
-            pool_pre_ping=True,  # Проверка соединения перед использованием
-            pool_size=20,  # Размер пула соединений
-            max_overflow=10,  # Дополнительные соединения при пиковой нагрузке
-        )
+        # Для SQLite не используем pool параметры
+        if database_url.startswith("sqlite"):
+            self.engine = create_async_engine(
+                database_url,
+                echo=echo,
+            )
+        else:
+            self.engine = create_async_engine(
+                database_url,
+                echo=echo,
+                pool_pre_ping=True,  # Проверка соединения перед использованием
+                pool_size=20,  # Размер пула соединений
+                max_overflow=10,  # Дополнительные соединения при пиковой нагрузке
+            )
 
         self.session_maker = async_sessionmaker(
             bind=self.engine,

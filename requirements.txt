@@ -2,8 +2,10 @@ aiogram==3.13.1
 sqlalchemy==2.0.36
 alembic==1.14.0
 asyncpg==0.30.0
+aiosqlite==0.20.0
 redis==5.2.1
-aiohttp==3.11.10
+fakeredis==2.24.1
+aiohttp>=3.9.0,<3.11
 python-dotenv==1.0.1
 pydantic-settings==2.6.1
 fastapi==0.115.0

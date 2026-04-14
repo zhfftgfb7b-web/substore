@@ -186,7 +186,16 @@ async def on_shutdown(bot: Bot, dispatcher: Dispatcher):
 async def main():
     """Главная функция"""
     # Инициализация Redis для FSM
-    redis = Redis.from_url(settings.REDIS_URL)
+    # Для локального запуска используем FakeRedis
+    try:
+        from fakeredis import FakeAsyncRedis
+        redis = FakeAsyncRedis()
+        logger.info("Using FakeRedis for local development")
+    except ImportError:
+        from redis.asyncio import Redis
+        redis = Redis.from_url(settings.REDIS_URL)
+        logger.info("Using real Redis")
+
     storage = RedisStorage(redis)
 
     # Инициализация бота
@@ -226,27 +235,37 @@ async def main():
     setup_application(app, dp, bot=bot)
 
     # Запускаем бота
+    # Для локального тестирования используем polling
     # На Railway используется webhook через aiohttp
-    # Локально можно использовать polling: await dp.start_polling(bot)
+
+    import os
+    use_polling = os.getenv("USE_POLLING", "true").lower() == "true"
 
     try:
-        # Webhook режим (для production на Railway)
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, host="0.0.0.0", port=8080)
-        await site.start()
+        if use_polling:
+            # Polling режим (для локального тестирования)
+            logger.info("Starting bot in polling mode...")
+            await dp.start_polling(bot, skip_updates=True)
+        else:
+            # Webhook режим (для production на Railway)
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, host="0.0.0.0", port=8080)
+            await site.start()
 
-        logger.info("Webhook server started on http://0.0.0.0:8080")
-        logger.info(f"Webhook URL: /webhook/telegram")
+            logger.info("Webhook server started on http://0.0.0.0:8080")
+            logger.info(f"Webhook URL: /webhook/telegram")
 
-        # Держим приложение запущенным
-        await asyncio.Event().wait()
+            # Держим приложение запущенным
+            await asyncio.Event().wait()
 
     except KeyboardInterrupt:
         logger.info("Received interrupt signal")
     finally:
         await bot.session.close()
-        await redis.close()
+        # Закрываем redis только если это не FakeRedis
+        if hasattr(redis, 'close') and callable(redis.close):
+            await redis.close()
 
 
 if __name__ == "__main__":
