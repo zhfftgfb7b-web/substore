@@ -1,6 +1,8 @@
 """
 Конфигурация приложения из переменных окружения
 """
+import os
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,7 +31,8 @@ class Settings(BaseSettings):
     ADMIN_PANEL_PASSWORD: str
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # .env файл используется только если существует (для локальной разработки)
+        env_file=".env" if Path(".env").exists() else None,
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",  # Игнорировать лишние переменные
