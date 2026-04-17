@@ -207,6 +207,10 @@ def get_admin_menu_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🔑 Добавить ключи", callback_data="admin:add_keys"),
     )
     builder.row(
+        InlineKeyboardButton(text="📝 Продукты", callback_data="admin:products"),
+        InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users"),
+    )
+    builder.row(
         InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats"),
         InlineKeyboardButton(text="📣 Рассылка", callback_data="admin:broadcast"),
     )
@@ -265,4 +269,80 @@ def get_back_to_menu_keyboard() -> InlineKeyboardMarkup:
     """Простая кнопка возврата в главное меню"""
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu"))
+    return builder.as_markup()
+
+
+# ==================== ADMIN PRODUCTS ====================
+
+def get_manage_products_keyboard(products: list[Product]) -> InlineKeyboardMarkup:
+    """Клавиатура управления продуктами"""
+    builder = InlineKeyboardBuilder()
+
+    for product in products:
+        status_emoji = "✅" if product.is_active else "❌"
+        builder.row(
+            InlineKeyboardButton(
+                text=f"{status_emoji} {product.emoji} {product.name} — {product.price}₽",
+                callback_data=f"admin:manage_product:{product.id}"
+            )
+        )
+
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data="admin:menu")
+    )
+
+    return builder.as_markup()
+
+
+def get_product_actions_keyboard(product_id: int, is_active: bool) -> InlineKeyboardMarkup:
+    """Клавиатура действий над продуктом"""
+    builder = InlineKeyboardBuilder()
+
+    toggle_text = "❌ Выключить" if is_active else "✅ Включить"
+    builder.row(
+        InlineKeyboardButton(text=toggle_text, callback_data=f"admin:toggle_product:{product_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="💰 Изменить цену", callback_data=f"admin:change_price:{product_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data="admin:products")
+    )
+
+    return builder.as_markup()
+
+
+# ==================== ADMIN USERS ====================
+
+def get_users_menu_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура меню управления пользователями"""
+    builder = InlineKeyboardBuilder()
+
+    builder.row(
+        InlineKeyboardButton(text="🔍 Найти пользователя", callback_data="admin:search_user")
+    )
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data="admin:menu")
+    )
+
+    return builder.as_markup()
+
+
+def get_user_actions_keyboard(user_id: int, is_banned: bool) -> InlineKeyboardMarkup:
+    """Клавиатура действий над пользователем"""
+    builder = InlineKeyboardBuilder()
+
+    ban_text = "✅ Разбанить" if is_banned else "🚫 Забанить"
+    ban_callback = f"admin:unban_user:{user_id}" if is_banned else f"admin:ban_user:{user_id}"
+
+    builder.row(
+        InlineKeyboardButton(text=ban_text, callback_data=ban_callback)
+    )
+    builder.row(
+        InlineKeyboardButton(text="📦 Заказы пользователя", callback_data=f"admin:user_orders:{user_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад к поиску", callback_data="admin:users")
+    )
+
     return builder.as_markup()

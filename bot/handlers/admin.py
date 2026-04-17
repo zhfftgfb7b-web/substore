@@ -16,6 +16,10 @@ from bot.keyboards.inline import (
     get_admin_products_keyboard,
     get_back_to_menu_keyboard,
     get_broadcast_confirmation_keyboard,
+    get_manage_products_keyboard,
+    get_product_actions_keyboard,
+    get_users_menu_keyboard,
+    get_user_actions_keyboard,
 )
 from config import settings
 from database import crud
@@ -428,3 +432,370 @@ async def confirm_broadcast(callback: CallbackQuery, session: AsyncSession, stat
         logger.error(f"Error in confirm_broadcast: {e}", exc_info=True)
         await callback.answer("❌ Ошибка рассылки", show_alert=True)
         await state.clear()
+
+
+# ==================== MANAGE PRODUCTS ====================
+
+@router.callback_query(F.data == "admin:products")
+async def show_products_list(callback: CallbackQuery, session: AsyncSession):
+    """Показать список продуктов для управления"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        products = await crud.get_all_products(session, active_only=False)
+
+        await callback.message.edit_text(
+            "📝 **Управление продуктами**\n\n"
+            "Выберите продукт:",
+            reply_markup=get_manage_products_keyboard(products),
+            parse_mode="Markdown"
+        )
+        await callback.answer()
+
+    except Exception as e:
+        logger.error(f"Error in show_products_list: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка загрузки продуктов", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:manage_product:"))
+async def show_product_actions(callback: CallbackQuery, session: AsyncSession):
+    """Показать действия над продуктом"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        product_id = int(callback.data.split(":")[2])
+        product = await crud.get_product_by_id(session, product_id)
+
+        if not product:
+            await callback.answer("❌ Продукт не найден", show_alert=True)
+            return
+
+        status = "Активен ✅" if product.is_active else "Выключен ❌"
+
+        await callback.message.edit_text(
+            f"📝 **{product.emoji} {product.name}**\n\n"
+            f"💰 Цена: {product.price}₽\n"
+            f"📅 Длительность: {product.duration_days} дней\n"
+            f"📦 Доставка: {product.delivery_type.value}\n"
+            f"🔔 Статус: {status}\n\n"
+            f"Выберите действие:",
+            reply_markup=get_product_actions_keyboard(product_id, product.is_active),
+            parse_mode="Markdown"
+        )
+        await callback.answer()
+
+    except Exception as e:
+        logger.error(f"Error in show_product_actions: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:toggle_product:"))
+async def toggle_product(callback: CallbackQuery, session: AsyncSession):
+    """Включить/выключить продукт"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        product_id = int(callback.data.split(":")[2])
+        new_status = await crud.toggle_product_active(session, product_id)
+
+        status_text = "включен ✅" if new_status else "выключен ❌"
+        await callback.answer(f"Продукт {status_text}", show_alert=True)
+
+        # Обновляем отображение продукта
+        await show_product_actions(callback, session)
+
+    except Exception as e:
+        logger.error(f"Error in toggle_product: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:change_price:"))
+async def start_change_price(callback: CallbackQuery, state: FSMContext):
+    """Начать процесс изменения цены"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        product_id = int(callback.data.split(":")[2])
+
+        await state.update_data(product_id=product_id)
+        await state.set_state(AdminStates.waiting_new_price)
+
+        await callback.message.edit_text(
+            "💰 **Изменение цены**\n\n"
+            "Введите новую цену в рублях (например: 199 или 299.50):"
+        )
+        await callback.answer()
+
+    except Exception as e:
+        logger.error(f"Error in start_change_price: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.message(AdminStates.waiting_new_price)
+async def process_new_price(message: Message, session: AsyncSession, state: FSMContext):
+    """Обработка новой цены продукта"""
+    if not is_admin(message.from_user.id):
+        return
+
+    try:
+        data = await state.get_data()
+        product_id = data["product_id"]
+
+        # Парсим цену
+        try:
+            from decimal import Decimal
+            new_price = Decimal(message.text.strip())
+
+            if new_price <= 0:
+                await message.answer("❌ Цена должна быть больше 0")
+                return
+
+        except Exception:
+            await message.answer("❌ Неверный формат цены. Введите число (например: 199 или 299.50)")
+            return
+
+        # Обновляем цену
+        await crud.update_product_price(session, product_id, new_price)
+
+        await state.clear()
+
+        await message.answer(
+            f"✅ Цена обновлена: {new_price}₽",
+            reply_markup=get_admin_menu_keyboard()
+        )
+
+    except Exception as e:
+        logger.error(f"Error in process_new_price: {e}", exc_info=True)
+        await message.answer("❌ Ошибка обновления цены")
+        await state.clear()
+
+
+# ==================== MANAGE USERS ====================
+
+@router.callback_query(F.data == "admin:users")
+async def show_users_menu(callback: CallbackQuery):
+    """Показать меню управления пользователями"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        "👥 **Управление пользователями**\n\n"
+        "Используйте поиск для нахождения пользователя:",
+        reply_markup=get_users_menu_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:search_user")
+async def start_user_search(callback: CallbackQuery, state: FSMContext):
+    """Начать поиск пользователя"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    await state.set_state(AdminStates.waiting_user_search)
+
+    await callback.message.edit_text(
+        "🔍 **Поиск пользователя**\n\n"
+        "Введите username (без @) или Telegram ID:"
+    )
+    await callback.answer()
+
+
+@router.message(AdminStates.waiting_user_search)
+async def process_user_search(message: Message, session: AsyncSession, state: FSMContext):
+    """Обработка поиска пользователя"""
+    if not is_admin(message.from_user.id):
+        return
+
+    try:
+        search_term = message.text.strip()
+
+        # Ищем пользователей
+        users = await crud.search_users(session, search_term)
+
+        if not users:
+            await message.answer(
+                "❌ Пользователи не найдены",
+                reply_markup=get_users_menu_keyboard()
+            )
+            await state.clear()
+            return
+
+        # Если найден один пользователь - показываем его
+        if len(users) == 1:
+            user = users[0]
+            await show_user_info(message, session, user.id, state)
+            return
+
+        # Если найдено несколько - показываем список
+        users_text = f"🔍 **Найдено пользователей:** {len(users)}\n\n"
+        for user in users[:10]:  # Показываем первых 10
+            ban_emoji = "🚫" if user.is_banned else "✅"
+            users_text += (
+                f"{ban_emoji} @{user.username or 'noname'}\n"
+                f"ID: `{user.telegram_id}`\n"
+                f"Имя: {user.full_name}\n\n"
+            )
+
+        users_text += "\n💡 Введите Telegram ID для просмотра деталей"
+
+        await message.answer(
+            users_text,
+            reply_markup=get_users_menu_keyboard(),
+            parse_mode="Markdown"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in process_user_search: {e}", exc_info=True)
+        await message.answer("❌ Ошибка поиска")
+        await state.clear()
+
+
+async def show_user_info(message: Message, session: AsyncSession, user_id: int, state: FSMContext):
+    """Показать информацию о пользователе"""
+    try:
+        from database.models import User
+        user = await session.get(User, user_id)
+
+        if not user:
+            await message.answer("❌ Пользователь не найден")
+            await state.clear()
+            return
+
+        # Получаем статистику
+        orders = await crud.get_user_orders(session, user.id, limit=1000)
+        referrals_count = await crud.get_user_referrals_count(session, user.id)
+
+        total_spent = sum(float(o.amount) for o in orders if o.status.value in ["paid", "delivered"])
+
+        ban_status = "🚫 Забанен" if user.is_banned else "✅ Активен"
+
+        user_info = (
+            f"👤 **Информация о пользователе**\n\n"
+            f"ID: `{user.telegram_id}`\n"
+            f"Username: @{user.username or 'нет'}\n"
+            f"Имя: {user.full_name}\n"
+            f"Статус: {ban_status}\n\n"
+            f"📊 **Статистика:**\n"
+            f"• Заказов: {len(orders)}\n"
+            f"• Потрачено: {total_spent}₽\n"
+            f"• Рефералов: {referrals_count}\n"
+            f"• Бонусов: {user.referral_bonus}₽\n"
+            f"• Зарегистрирован: {user.created_at.strftime('%d.%m.%Y')}\n"
+        )
+
+        await message.answer(
+            user_info,
+            reply_markup=get_user_actions_keyboard(user.id, user.is_banned),
+            parse_mode="Markdown"
+        )
+        await state.clear()
+
+    except Exception as e:
+        logger.error(f"Error in show_user_info: {e}", exc_info=True)
+        await message.answer("❌ Ошибка загрузки информации")
+        await state.clear()
+
+
+@router.callback_query(F.data.startswith("admin:ban_user:"))
+async def ban_user_handler(callback: CallbackQuery, session: AsyncSession):
+    """Забанить пользователя"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        user_id = int(callback.data.split(":")[2])
+        await crud.ban_user(session, user_id, banned=True)
+
+        await callback.answer("🚫 Пользователь забанен", show_alert=True)
+        await callback.message.edit_reply_markup(
+            reply_markup=get_user_actions_keyboard(user_id, is_banned=True)
+        )
+
+    except Exception as e:
+        logger.error(f"Error in ban_user_handler: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:unban_user:"))
+async def unban_user_handler(callback: CallbackQuery, session: AsyncSession):
+    """Разбанить пользователя"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        user_id = int(callback.data.split(":")[2])
+        await crud.ban_user(session, user_id, banned=False)
+
+        await callback.answer("✅ Пользователь разбанен", show_alert=True)
+        await callback.message.edit_reply_markup(
+            reply_markup=get_user_actions_keyboard(user_id, is_banned=False)
+        )
+
+    except Exception as e:
+        logger.error(f"Error in unban_user_handler: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:user_orders:"))
+async def show_user_orders(callback: CallbackQuery, session: AsyncSession):
+    """Показать заказы пользователя"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        user_id = int(callback.data.split(":")[2])
+        from database.models import User
+        user = await session.get(User, user_id)
+
+        if not user:
+            await callback.answer("❌ Пользователь не найден", show_alert=True)
+            return
+
+        orders = await crud.get_user_orders(session, user.id, limit=20)
+
+        if not orders:
+            await callback.answer("У пользователя нет заказов", show_alert=True)
+            return
+
+        orders_text = f"📦 **Заказы @{user.username or 'noname'}**\n\n"
+
+        for order in orders:
+            status_emoji = {
+                "pending": "⏳",
+                "paid": "💳",
+                "delivered": "✅",
+                "cancelled": "❌"
+            }.get(order.status.value, "❓")
+
+            orders_text += (
+                f"{status_emoji} **Заказ #{order.id}**\n"
+                f"{order.product.emoji} {order.product.name}\n"
+                f"💰 {order.amount}₽\n"
+                f"📅 {order.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+            )
+
+        await callback.message.edit_text(
+            orders_text,
+            reply_markup=get_user_actions_keyboard(user.id, user.is_banned),
+            parse_mode="Markdown"
+        )
+        await callback.answer()
+
+    except Exception as e:
+        logger.error(f"Error in show_user_orders: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)
