@@ -35,31 +35,74 @@ def is_admin(user_id: int) -> bool:
     return user_id == settings.ADMIN_ID
 
 
+async def get_dashboard_text(session: AsyncSession) -> str:
+    """Получить текст дэшборда с мини-статистикой"""
+    try:
+        # Статистика за сегодня
+        stats_today = await crud.get_stats_today(session)
+
+        # Остатки ключей с индикаторами
+        products = await crud.get_all_products(session, active_only=False)
+        keys_status_lines = []
+
+        for product in products:
+            if product.delivery_type == DeliveryTypeEnum.auto:
+                stats = await crud.get_key_stats(session, product.id)
+                available = stats["available"]
+
+                # Индикаторы: 🟢 >3, 🟡 1-3, 🔴 0
+                if available > 3:
+                    indicator = "🟢"
+                elif available > 0:
+                    indicator = "🟡"
+                else:
+                    indicator = "🔴"
+
+                keys_status_lines.append(f"{indicator} {product.emoji} {product.name}: {available} шт")
+
+        keys_status = "\n".join(keys_status_lines) if keys_status_lines else "Нет товаров с автовыдачей"
+
+        return (
+            "🛠 **Панель администратора SubStore**\n\n"
+            f"📊 **Статистика сегодня:**\n"
+            f"💰 Продажи: {stats_today['revenue_today']:,.0f}₽ ({stats_today['orders_today']} заказов)\n"
+            f"👥 Новых клиентов: {stats_today['users_today']}\n\n"
+            f"📦 **Остаток ключей:**\n{keys_status}"
+        )
+    except Exception as e:
+        logger.error(f"Error in get_dashboard_text: {e}", exc_info=True)
+        return "🛠 **Панель администратора SubStore**\n\nВыберите действие:"
+
+
 @router.message(Command("admin"))
-async def cmd_admin(message: Message):
+async def cmd_admin(message: Message, session: AsyncSession):
     """Команда /admin - вход в админ-панель"""
     if not is_admin(message.from_user.id):
-        await message.answer("❌ У вас нет доступа к админ-панели")
+        # Silent drop - не раскрываем существование админки
         return
 
+    # Получаем мини-статистику для дэшборда
+    dashboard_text = await get_dashboard_text(session)
+
     await message.answer(
-        "🔐 **Админ-панель**\n\n"
-        "Выберите действие:",
+        dashboard_text,
         reply_markup=get_admin_menu_keyboard(),
         parse_mode="Markdown"
     )
 
 
 @router.callback_query(F.data == "admin:menu")
-async def show_admin_menu(callback: CallbackQuery):
+async def show_admin_menu(callback: CallbackQuery, session: AsyncSession):
     """Показать админ меню"""
     if not is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
 
+    # Получаем обновлённый дэшборд
+    dashboard_text = await get_dashboard_text(session)
+
     await callback.message.edit_text(
-        "🔐 **Админ-панель**\n\n"
-        "Выберите действие:",
+        dashboard_text,
         reply_markup=get_admin_menu_keyboard(),
         parse_mode="Markdown"
     )
@@ -446,9 +489,35 @@ async def show_products_list(callback: CallbackQuery, session: AsyncSession):
     try:
         products = await crud.get_all_products(session, active_only=False)
 
+        # Формируем список продуктов с индикаторами
+        product_lines = ["📦 **Товары в каталоге**\n"]
+
+        for product in products:
+            if product.delivery_type == DeliveryTypeEnum.auto:
+                stats = await crud.get_key_stats(session, product.id)
+                available = stats["available"]
+
+                # Индикаторы: 🟢 >3, 🟡 1-3, 🔴 0
+                if available > 3:
+                    indicator = "🟢"
+                elif available > 0:
+                    indicator = "🟡"
+                else:
+                    indicator = "🔴"
+
+                product_lines.append(
+                    f"{indicator} {product.emoji} {product.name:<30} В наличии: {available} шт"
+                )
+            else:
+                # Manual продукты
+                product_lines.append(
+                    f"⚪ {product.emoji} {product.name:<30} manual"
+                )
+
+        products_text = "\n".join(product_lines)
+
         await callback.message.edit_text(
-            "📝 **Управление продуктами**\n\n"
-            "Выберите продукт:",
+            products_text + "\n\nВыберите продукт для управления:",
             reply_markup=get_manage_products_keyboard(products),
             parse_mode="Markdown"
         )
