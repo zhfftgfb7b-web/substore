@@ -136,34 +136,8 @@ async def handle_manual_payment(callback: CallbackQuery, session: AsyncSession, 
         parse_mode="Markdown"
     )
 
-    # Уведомляем админа о новом платеже
-    try:
-        from aiogram import Bot
-        bot = callback.bot
-        admin_id = settings.ADMIN_ID
-
-        from aiogram.utils.keyboard import InlineKeyboardBuilder
-        from aiogram.types import InlineKeyboardButton
-
-        builder = InlineKeyboardBuilder()
-        builder.row(
-            InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"admin:confirm_payment:{order.id}"),
-            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin:decline_payment:{order.id}")
-        )
-
-        await bot.send_message(
-            admin_id,
-            f"💳 **Новый ручной платёж**\n\n"
-            f"Заказ #{order.id}\n"
-            f"👤 @{callback.from_user.username or 'noname'} (ID: {callback.from_user.id})\n"
-            f"📦 {order.product.name}\n"
-            f"💰 Сумма: {order.amount}₽\n\n"
-            f"Проверьте поступление средств и подтвердите:",
-            reply_markup=builder.as_markup(),
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logger.error(f"Failed to notify admin about manual payment: {e}")
+    # Уведомляем админа о новом платеже (пока реквизиты только отправлены клиенту)
+    # Реальное уведомление будет после нажатия "Я оплатил"
 
     await callback.answer()
 
@@ -323,6 +297,55 @@ async def process_order_delivery(message: Message, session: AsyncSession, order)
             "❌ Ошибка при выдаче товара. Обратитесь в поддержку.",
             reply_markup=get_back_to_menu_keyboard()
         )
+
+
+@router.callback_query(F.data == "payment_done")
+async def handle_payment_done(callback: CallbackQuery, session: AsyncSession):
+    """Обработка кнопки 'Я оплатил' для ручного перевода"""
+    try:
+        # Ищем pending заказ пользователя с manual payment
+        user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+        if not user:
+            await callback.answer("❌ Ошибка: пользователь не найден", show_alert=True)
+            return
+
+        # Получаем последний pending заказ с ручным переводом
+        from database.models import OrderStatusEnum
+        orders = await crud.get_user_orders(session, user.id, limit=5)
+
+        manual_order = None
+        for order in orders:
+            if (order.status == OrderStatusEnum.pending and
+                order.payment_method == PaymentMethodEnum.manual):
+                manual_order = order
+                break
+
+        if not manual_order:
+            await callback.answer("❌ Заказ не найден", show_alert=True)
+            return
+
+        # Отправляем уведомление админу с inline-кнопками подтверждения
+        from bot.utils.notifications import notify_admin_manual_payment_pending
+        await notify_admin_manual_payment_pending(callback.bot, manual_order)
+
+        # Показываем клиенту сообщение
+        await callback.message.edit_text(
+            f"✅ **Платёж на проверке**\n\n"
+            f"Заказ #{manual_order.id}\n"
+            f"💰 Сумма: {manual_order.amount}₽\n\n"
+            f"Администратор проверит поступление средств.\n"
+            f"Обычно это занимает до 5 минут.\n\n"
+            f"Мы пришлём уведомление когда товар будет готов!",
+            reply_markup=get_back_to_menu_keyboard(),
+            parse_mode="Markdown"
+        )
+        await callback.answer("✅ Отправлено на проверку")
+
+        logger.info(f"Manual payment marked as done by user {user.telegram_id}, order {manual_order.id}")
+
+    except Exception as e:
+        logger.error(f"Error in handle_payment_done: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка обработки", show_alert=True)
 
 
 @router.callback_query(F.data == "cancel_order")

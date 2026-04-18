@@ -97,6 +97,7 @@ class Product(Base):
     category: Mapped[CategoryEnum] = mapped_column(Enum(CategoryEnum), nullable=False, index=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    cost_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)  # Себестоимость для расчёта маржи
     duration_days: Mapped[int] = mapped_column(Integer, nullable=False)
     delivery_type: Mapped[DeliveryTypeEnum] = mapped_column(Enum(DeliveryTypeEnum), nullable=False)
     emoji: Mapped[str] = mapped_column(String(10), nullable=False, default="📦")

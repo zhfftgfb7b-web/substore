@@ -463,7 +463,7 @@ async def process_keys_input(message: Message, session: AsyncSession, state: FSM
 
 @router.callback_query(F.data == "admin:stats")
 async def show_statistics(callback: CallbackQuery, session: AsyncSession):
-    """Показать статистику"""
+    """Показать детальную статистику"""
     if not is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
@@ -479,26 +479,57 @@ async def show_statistics(callback: CallbackQuery, session: AsyncSession):
         # Статистика за месяц
         stats_month = await crud.get_stats_month(session)
 
+        # Топ-продукты
+        top_products = await crud.get_top_products(session, limit=5)
+        top_products_text = "\n🏆 **Топ-продукты:**\n"
+        for i, (product, sales_count, revenue) in enumerate(top_products, 1):
+            top_products_text += f"{i}. {product.emoji} {product.name} — {sales_count} продаж ({revenue:,.0f}₽)\n"
+
+        if not top_products:
+            top_products_text = "\n🏆 **Топ-продукты:**\nПока нет продаж\n"
+
+        # Разбивка по способам оплаты
+        payment_breakdown = await crud.get_payment_methods_breakdown(session)
+        total_revenue = sum(item["revenue"] for item in payment_breakdown.values())
+
+        payment_text = "\n💳 **По способам оплаты:**\n"
+        if payment_breakdown:
+            # Названия методов для отображения
+            method_names = {
+                "crypto": "CryptoBot",
+                "manual": "Ручной перевод",
+                "stars": "Telegram Stars"
+            }
+
+            for method, data in payment_breakdown.items():
+                method_name = method_names.get(method, method)
+                percentage = (data["revenue"] / total_revenue * 100) if total_revenue > 0 else 0
+                payment_text += f"• {method_name}: {percentage:.0f}% ({data['revenue']:,.0f}₽)\n"
+        else:
+            payment_text += "Пока нет оплат\n"
+
         # Остаток ключей
         products = await crud.get_all_products(session, active_only=False)
-        keys_stats_text = "\n\n🔑 **Остаток ключей:**\n"
+        keys_stats_text = "\n🔑 **Остаток ключей:**\n"
 
         for product in products:
             if product.delivery_type == DeliveryTypeEnum.auto:
                 stats = await crud.get_key_stats(session, product.id)
                 emoji = "🟢" if stats["available"] > 10 else "🟡" if stats["available"] > 3 else "🔴"
-                keys_stats_text += f"{emoji} {product.name}: {stats['available']} шт.\n"
+                keys_stats_text += f"{emoji} {product.name}: {stats['available']} шт\n"
 
         stats_text = (
-            "📊 **Статистика**\n\n"
-            f"👥 **Всего пользователей:** {total_users}\n"
-            f"📦 **Всего заказов:** {total_orders}\n\n"
+            "📊 **Статистика SubStore**\n\n"
+            f"👥 Всего пользователей: {total_users}\n"
+            f"📦 Всего заказов: {total_orders}\n\n"
             f"**Сегодня:**\n"
             f"• Новых пользователей: {stats_today['users_today']}\n"
             f"• Заказов: {stats_today['orders_today']}\n"
-            f"• Выручка: {stats_today['revenue_today']}₽\n\n"
+            f"• Выручка: {stats_today['revenue_today']:,.0f}₽\n\n"
             f"**Текущий месяц:**\n"
-            f"• Выручка: {stats_month['revenue_month']}₽"
+            f"• Выручка: {stats_month['revenue_month']:,.0f}₽"
+            f"{top_products_text}"
+            f"{payment_text}"
             f"{keys_stats_text}"
         )
 
@@ -657,7 +688,7 @@ async def show_products_list(callback: CallbackQuery, session: AsyncSession):
 
 @router.callback_query(F.data.startswith("admin:manage_product:"))
 async def show_product_actions(callback: CallbackQuery, session: AsyncSession):
-    """Показать действия над продуктом"""
+    """Показать действия над продуктом с детальной статистикой"""
     if not is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
@@ -670,15 +701,41 @@ async def show_product_actions(callback: CallbackQuery, session: AsyncSession):
             await callback.answer("❌ Продукт не найден", show_alert=True)
             return
 
-        status = "Активен ✅" if product.is_active else "Выключен ❌"
+        # Получаем статистику продукта
+        product_stats = await crud.get_product_stats(session, product_id)
+
+        # Формируем текст карточки
+        status = "🟢 Активен" if product.is_active else "🔴 Выключен"
+
+        card_text = f"{product.emoji} **{product.name}**\n\n"
+        card_text += f"💰 Цена: {product.price:,.0f}₽\n"
+
+        # Показываем себестоимость если задана
+        if product.cost_price:
+            card_text += f"🏷 Себестоимость: {product.cost_price:,.0f}₽\n"
+            margin_per_item = product.price - product.cost_price
+            card_text += f"📈 Маржа: {margin_per_item:,.0f}₽ за шт.\n"
+
+        # Остаток для auto-продуктов
+        if product.delivery_type == DeliveryTypeEnum.auto:
+            keys_stats = await crud.get_key_stats(session, product_id)
+            card_text += f"📦 В наличии: {keys_stats['available']} шт\n"
+
+        # Статистика продаж
+        card_text += f"📊 Продано всего: {product_stats['total_sold']} шт\n"
+
+        if product_stats['total_sold'] > 0:
+            card_text += f"💵 Выручка: {product_stats['revenue']:,.0f}₽\n"
+            if product.cost_price:
+                card_text += f"💰 Общая маржа: {product_stats['margin']:,.0f}₽\n"
+
+        card_text += f"\n📅 Длительность: {product.duration_days} дней\n"
+        card_text += f"📦 Доставка: {product.delivery_type.value}\n"
+        card_text += f"{status}\n\n"
+        card_text += "Выберите действие:"
 
         await callback.message.edit_text(
-            f"📝 **{product.emoji} {product.name}**\n\n"
-            f"💰 Цена: {product.price}₽\n"
-            f"📅 Длительность: {product.duration_days} дней\n"
-            f"📦 Доставка: {product.delivery_type.value}\n"
-            f"🔔 Статус: {status}\n\n"
-            f"Выберите действие:",
+            card_text,
             reply_markup=get_product_actions_keyboard(product_id, product.is_active),
             parse_mode="Markdown"
         )
@@ -772,6 +829,63 @@ async def process_new_price(message: Message, session: AsyncSession, state: FSMC
         logger.error(f"Error in process_new_price: {e}", exc_info=True)
         await message.answer("❌ Ошибка обновления цены")
         await state.clear()
+
+
+@router.callback_query(F.data.startswith("admin:product_history:"))
+async def show_product_history(callback: CallbackQuery, session: AsyncSession):
+    """Показать историю продаж продукта"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        product_id = int(callback.data.split(":")[2])
+        product = await crud.get_product_by_id(session, product_id)
+
+        if not product:
+            await callback.answer("❌ Продукт не найден", show_alert=True)
+            return
+
+        # Получаем историю продаж
+        sales_history = await crud.get_product_sales_history(session, product_id, limit=15)
+
+        if not sales_history:
+            await callback.message.edit_text(
+                f"📋 **История продаж**\n{product.emoji} {product.name}\n\n"
+                "Пока нет продаж",
+                reply_markup=InlineKeyboardBuilder()
+                .row(InlineKeyboardButton(text="◀️ Назад", callback_data=f"admin:manage_product:{product_id}"))
+                .as_markup(),
+                parse_mode="Markdown"
+            )
+            await callback.answer()
+            return
+
+        # Формируем текст истории
+        history_text = f"📋 **История продаж (последние 15)**\n{product.emoji} {product.name}\n\n"
+
+        for order in sales_history:
+            username = f"@{order.user.username}" if order.user.username else "noname"
+            delivered_date = order.delivered_at.strftime("%d.%m %H:%M") if order.delivered_at else "?"
+            history_text += f"#{order.id} • {order.amount:,.0f}₽ • {username}\n"
+            history_text += f"    📅 {delivered_date}\n\n"
+
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import InlineKeyboardButton
+
+        keyboard = InlineKeyboardBuilder()
+        keyboard.row(InlineKeyboardButton(text="◀️ Назад", callback_data=f"admin:manage_product:{product_id}"))
+
+        await callback.message.edit_text(
+            history_text,
+            reply_markup=keyboard.as_markup(),
+            parse_mode="Markdown"
+        )
+        await callback.answer()
+
+    except Exception as e:
+        logger.error(f"Error in show_product_history: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка загрузки истории", show_alert=True)
 
 
 # ==================== MANAGE USERS ====================

@@ -303,6 +303,9 @@ def get_product_actions_keyboard(product_id: int, is_active: bool) -> InlineKeyb
         InlineKeyboardButton(text="💰 Изменить цену", callback_data=f"admin:change_price:{product_id}")
     )
     builder.row(
+        InlineKeyboardButton(text="📋 История продаж", callback_data=f"admin:product_history:{product_id}")
+    )
+    builder.row(
         InlineKeyboardButton(text="◀️ Назад", callback_data="admin:products")
     )
 

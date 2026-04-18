@@ -110,8 +110,18 @@ async def on_startup(bot: Bot, dispatcher: Dispatcher):
         args=[bot],
     )
 
+    # Каждый день в 21:00 UTC - ежедневная сводка админу
+    from bot.scheduler.daily_summary import send_daily_summary_job
+    scheduler.add_job(
+        send_daily_summary_job,
+        trigger="cron",
+        hour=21,
+        minute=0,
+        args=[bot],
+    )
+
     scheduler.start()
-    logger.info("Scheduler started with low_stock_check and renewal reminders")
+    logger.info("Scheduler started with low_stock_check, renewal reminders, and daily summary")
 
     # Сохраняем scheduler в dispatcher для доступа
     dispatcher["scheduler"] = scheduler

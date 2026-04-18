@@ -640,3 +640,119 @@ async def search_users(
         .limit(limit)
     )
     return list(result.scalars().all())
+
+
+# ==================== PRODUCT STATISTICS ====================
+
+async def get_product_stats(session: AsyncSession, product_id: int) -> dict:
+    """
+    Получить детальную статистику по продукту
+
+    Returns:
+        dict: {
+            "total_sold": int,  # Всего продано
+            "revenue": Decimal,  # Общая выручка
+            "margin": Decimal,  # Общая маржа (если есть cost_price)
+        }
+    """
+    product = await session.get(Product, product_id)
+    if not product:
+        return {"total_sold": 0, "revenue": Decimal(0), "margin": Decimal(0)}
+
+    # Подсчёт продаж (delivered заказы)
+    result = await session.execute(
+        select(func.count(), func.coalesce(func.sum(Order.amount), 0))
+        .where(
+            and_(
+                Order.product_id == product_id,
+                Order.status == OrderStatusEnum.delivered
+            )
+        )
+    )
+    total_sold, revenue = result.one()
+
+    # Рассчитываем маржу если есть cost_price
+    margin = Decimal(0)
+    if product.cost_price and total_sold > 0:
+        margin = (product.price - product.cost_price) * total_sold
+
+    return {
+        "total_sold": total_sold or 0,
+        "revenue": Decimal(revenue or 0),
+        "margin": margin,
+    }
+
+
+async def get_product_sales_history(
+    session: AsyncSession, product_id: int, limit: int = 20
+) -> list[Order]:
+    """Получить историю продаж продукта"""
+    result = await session.execute(
+        select(Order)
+        .options(selectinload(Order.user))
+        .where(
+            and_(
+                Order.product_id == product_id,
+                Order.status == OrderStatusEnum.delivered
+            )
+        )
+        .order_by(Order.delivered_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def get_top_products(session: AsyncSession, limit: int = 5) -> list[tuple[Product, int, Decimal]]:
+    """
+    Получить топ-продукты по количеству продаж
+
+    Returns:
+        list[tuple[Product, int, Decimal]]: список (продукт, кол-во продаж, выручка)
+    """
+    result = await session.execute(
+        select(
+            Product,
+            func.count(Order.id).label("sales_count"),
+            func.coalesce(func.sum(Order.amount), 0).label("revenue")
+        )
+        .join(Order, Order.product_id == Product.id)
+        .where(Order.status == OrderStatusEnum.delivered)
+        .group_by(Product.id)
+        .order_by(func.count(Order.id).desc())
+        .limit(limit)
+    )
+
+    return [(row[0], row[1], Decimal(row[2])) for row in result.all()]
+
+
+async def get_payment_methods_breakdown(session: AsyncSession) -> dict[str, dict]:
+    """
+    Получить разбивку по способам оплаты
+
+    Returns:
+        dict: {
+            "crypto": {"count": 10, "revenue": 50000},
+            "manual": {"count": 5, "revenue": 25000},
+            ...
+        }
+    """
+    result = await session.execute(
+        select(
+            Order.payment_method,
+            func.count(Order.id).label("count"),
+            func.coalesce(func.sum(Order.amount), 0).label("revenue")
+        )
+        .where(Order.status.in_([OrderStatusEnum.paid, OrderStatusEnum.delivered]))
+        .group_by(Order.payment_method)
+    )
+
+    breakdown = {}
+    for row in result.all():
+        if row[0]:  # payment_method не None
+            method = row[0].value
+            breakdown[method] = {
+                "count": row[1] or 0,
+                "revenue": Decimal(row[2] or 0)
+            }
+
+    return breakdown
