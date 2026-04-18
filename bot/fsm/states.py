@@ -6,7 +6,8 @@ from aiogram.fsm.state import State, StatesGroup
 
 class OrderStates(StatesGroup):
     """Состояния для оформления заказа"""
-    waiting_apple_email = State()  # Ожидание ввода Apple ID email для iCloud заказа
+    # NOTE: iCloud Family subscriptions removed from MVP
+    # Will be added in v3 when we have manual setup process
 
 
 class AdminStates(StatesGroup):

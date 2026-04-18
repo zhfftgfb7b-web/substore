@@ -112,13 +112,10 @@ def get_payment_methods_keyboard(order_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
 
     builder.row(
-        InlineKeyboardButton(text="💳 ЮКасса (карта РФ, СБП)", callback_data=f"pay:yookassa:{order_id}")
+        InlineKeyboardButton(text="₿ Крипта (CryptoBot)", callback_data=f"pay:crypto:{order_id}")
     )
     builder.row(
-        InlineKeyboardButton(text="⭐ Telegram Stars", callback_data=f"pay:stars:{order_id}")
-    )
-    builder.row(
-        InlineKeyboardButton(text="₿ Крипта (CryptoPay)", callback_data=f"pay:crypto:{order_id}")
+        InlineKeyboardButton(text="💳 Перевод на карту", callback_data=f"pay:manual:{order_id}")
     )
     builder.row(
         InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_order")

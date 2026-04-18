@@ -22,13 +22,14 @@ class Settings(BaseSettings):
     REDIS_URL: str
 
     # Payment Systems
-    YOOKASSA_SHOP_ID: str = ""
-    YOOKASSA_SECRET_KEY: str = ""
+    # TODO: Add YooKassa when ИП/company is ready
+    # YOOKASSA_SHOP_ID: str = ""
+    # YOOKASSA_SECRET_KEY: str = ""
     CRYPTO_PAY_TOKEN: str = ""
 
-    # Admin Panel
-    ADMIN_PANEL_LOGIN: str = "admin"
-    ADMIN_PANEL_PASSWORD: str
+    # Manual payment (bank card)
+    ADMIN_CARD_NUMBER: str = "2200****1234"
+    ADMIN_CARD_OWNER: str = "Имя Фамилия"
 
     model_config = SettingsConfigDict(
         # .env файл используется только если существует (для локальной разработки)

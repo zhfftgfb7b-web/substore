@@ -52,9 +52,9 @@ class OrderStatusEnum(enum.Enum):
 
 class PaymentMethodEnum(enum.Enum):
     """Методы оплаты"""
-    yookassa = "yookassa"
-    crypto = "crypto"
-    stars = "stars"
+    manual = "manual"  # Ручной перевод на карту
+    crypto = "crypto"  # CryptoBot
+    stars = "stars"  # Telegram Stars
 
 
 class User(Base):

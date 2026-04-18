@@ -13,86 +13,72 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# MVP: Only 4 products for initial launch
+# More products will be added based on demand
 INITIAL_PRODUCTS = [
     {
-        "name": "iCloud+ 200GB (Family слот)",
-        "category": CategoryEnum.icloud,
-        "description": "Семейная подписка Apple iCloud+ 200GB. Вы получите слот в семейной группе. Требуется ваш Apple ID.",
-        "price": Decimal("199"),
-        "duration_days": 30,
-        "delivery_type": DeliveryTypeEnum.manual,
-        "emoji": "☁️",
+        "name": "Apple Gift Card $25 USA",
+        "category": CategoryEnum.gift_card,
+        "description": (
+            "🎁 Подарочная карта Apple на $25 для американского App Store\n\n"
+            "✅ Моментальная выдача кода\n"
+            "✅ Пополнение Apple ID баланса\n"
+            "✅ Оплата подписок и покупок\n"
+            "✅ Срок действия не ограничен"
+        ),
+        "price": Decimal("2800"),
+        "duration_days": 365,
+        "delivery_type": DeliveryTypeEnum.auto,
+        "emoji": "🍎",
         "sort_order": 1,
     },
     {
-        "name": "Apple One Family",
-        "category": CategoryEnum.icloud,
-        "description": "Семейная подписка Apple One (iCloud+, Apple Music, Apple TV+, Apple Arcade). Слот в семейной группе.",
-        "price": Decimal("349"),
-        "duration_days": 30,
-        "delivery_type": DeliveryTypeEnum.manual,
-        "emoji": "🍎",
+        "name": "Apple Gift Card 100 TRY Turkey",
+        "category": CategoryEnum.gift_card,
+        "description": (
+            "🎁 Подарочная карта Apple на 100 лир для турецкого App Store\n\n"
+            "✅ Моментальная выдача кода\n"
+            "✅ Самые низкие цены на подписки\n"
+            "✅ Пополнение Apple ID баланса\n"
+            "✅ Срок действия не ограничен"
+        ),
+        "price": Decimal("350"),
+        "duration_days": 365,
+        "delivery_type": DeliveryTypeEnum.auto,
+        "emoji": "🇹🇷",
         "sort_order": 2,
     },
     {
-        "name": "VPN-ключ 30 дней",
-        "category": CategoryEnum.vpn,
-        "description": "Приватный VPN ключ на 30 дней. Работает на всех устройствах. Автоматическая выдача.",
-        "price": Decimal("149"),
+        "name": "ChatGPT Plus",
+        "category": CategoryEnum.ai,
+        "description": (
+            "🤖 Подписка ChatGPT Plus на 1 месяц\n\n"
+            "✅ Оплата на ваш email\n"
+            "✅ GPT-4 и GPT-4o доступ\n"
+            "✅ Приоритетный доступ\n"
+            "⏱ Выдача в течение 2 часов"
+        ),
+        "price": Decimal("2500"),
         "duration_days": 30,
-        "delivery_type": DeliveryTypeEnum.auto,
-        "emoji": "🔒",
+        "delivery_type": DeliveryTypeEnum.manual,
+        "emoji": "🤖",
         "sort_order": 3,
     },
     {
-        "name": "VPN-ключ 90 дней",
-        "category": CategoryEnum.vpn,
-        "description": "Приватный VPN ключ на 90 дней. Работает на всех устройствах. Автоматическая выдача.",
-        "price": Decimal("349"),
-        "duration_days": 90,
-        "delivery_type": DeliveryTypeEnum.auto,
-        "emoji": "🔒",
-        "sort_order": 4,
-    },
-    {
-        "name": "Apple Gift Card $10 USA",
-        "category": CategoryEnum.gift_card,
-        "description": "Подарочная карта Apple на $10 для американского App Store. Автоматическая выдача кода.",
-        "price": Decimal("999"),
-        "duration_days": 365,
-        "delivery_type": DeliveryTypeEnum.auto,
-        "emoji": "🎁",
-        "sort_order": 5,
-    },
-    {
-        "name": "Steam Gift Card 500₽",
-        "category": CategoryEnum.gift_card,
-        "description": "Подарочная карта Steam на 500 рублей. Автоматическая выдача кода.",
-        "price": Decimal("549"),
-        "duration_days": 365,
-        "delivery_type": DeliveryTypeEnum.auto,
-        "emoji": "🎮",
-        "sort_order": 6,
-    },
-    {
-        "name": "Spotify Premium 1 месяц",
+        "name": "Spotify Premium",
         "category": CategoryEnum.streaming,
-        "description": "Подписка Spotify Premium на 1 месяц. Ручная выдача в течение 2 часов.",
+        "description": (
+            "🎵 Подписка Spotify Premium на 1 месяц\n\n"
+            "✅ Оплата на ваш аккаунт\n"
+            "✅ Без рекламы\n"
+            "✅ Offline прослушивание\n"
+            "⏱ Выдача в течение 2 часов"
+        ),
         "price": Decimal("199"),
         "duration_days": 30,
         "delivery_type": DeliveryTypeEnum.manual,
         "emoji": "🎵",
-        "sort_order": 7,
-    },
-    {
-        "name": "ChatGPT Plus (аккаунт)",
-        "category": CategoryEnum.ai,
-        "description": "Готовый аккаунт ChatGPT Plus. Автоматическая выдача доступа.",
-        "price": Decimal("999"),
-        "duration_days": 30,
-        "delivery_type": DeliveryTypeEnum.auto,
-        "emoji": "🤖",
-        "sort_order": 8,
+        "sort_order": 4,
     },
 ]
 

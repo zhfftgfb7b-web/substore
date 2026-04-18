@@ -100,26 +100,6 @@ async def send_renewal_reminders_task(bot: Bot):
         logger.error(f"Error in send_renewal_reminders_task: {e}", exc_info=True)
 
 
-async def yookassa_webhook_handler(request: web.Request) -> web.Response:
-    """Обработчик webhook от ЮКассы"""
-    try:
-        data = await request.json()
-        logger.info(f"Received YooKassa webhook: {data}")
-
-        # TODO: Обработка webhook от ЮКассы
-        # 1. Проверить подпись запроса
-        # 2. Получить payment_id из data
-        # 3. Найти заказ по payment_id
-        # 4. Пометить как оплаченный
-        # 5. Выдать товар
-
-        return web.json_response({"status": "ok"})
-
-    except Exception as e:
-        logger.error(f"Error in yookassa_webhook_handler: {e}", exc_info=True)
-        return web.json_response({"status": "error"}, status=500)
-
-
 async def on_startup(bot: Bot, dispatcher: Dispatcher):
     """Действия при запуске бота"""
     logger.info("Bot starting...")
@@ -223,9 +203,6 @@ async def main():
 
     # Создаём aiohttp app для webhook
     app = web.Application()
-
-    # Добавляем webhook endpoint для ЮКассы
-    app.router.add_post("/webhook/yookassa", yookassa_webhook_handler)
 
     # Настраиваем webhook handler для Telegram
     webhook_path = "/webhook/telegram"

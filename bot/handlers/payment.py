@@ -10,9 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, LabeledPrice, Message, PreCheckoutQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.fsm.states import OrderStates
 from bot.keyboards.inline import (
-    get_apple_email_confirmation_keyboard,
     get_back_to_menu_keyboard,
     get_payment_methods_keyboard,
 )
@@ -62,25 +60,7 @@ async def start_purchase(
             bonus_used = min(user.referral_bonus, int(product.price))
             final_price = product.price - Decimal(bonus_used)
 
-        # Для iCloud продуктов - запрашиваем Apple ID email
-        if product.category == CategoryEnum.icloud:
-            await state.update_data(
-                product_id=product_id,
-                final_price=float(final_price),
-                bonus_used=bonus_used,
-            )
-            await state.set_state(OrderStates.waiting_apple_email)
-
-            await callback.message.edit_text(
-                f"📧 **{product.name}**\n\n"
-                f"Для добавления вас в семейную подписку Apple нужен ваш Apple ID (email).\n\n"
-                f"📝 Отправьте ваш Apple ID email:",
-                parse_mode="Markdown"
-            )
-            await callback.answer()
-            return
-
-        # Для остальных продуктов - создаём заказ сразу
+        # Создаём заказ
         order = await crud.create_order(
             session=session,
             user_id=user.id,
@@ -109,105 +89,6 @@ async def start_purchase(
         await callback.answer("❌ Ошибка при создании заказа", show_alert=True)
 
 
-@router.message(OrderStates.waiting_apple_email)
-async def process_apple_email(message: Message, session: AsyncSession, state: FSMContext):
-    """Обработка ввода Apple ID email для iCloud заказа"""
-    try:
-        email = message.text.strip()
-
-        # Простая валидация email
-        if "@" not in email or "." not in email:
-            await message.answer(
-                "❌ Неверный формат email.\n"
-                "Пожалуйста, введите корректный Apple ID (email):"
-            )
-            return
-
-        # Сохраняем email в FSM
-        data = await state.get_data()
-        product_id = data["product_id"]
-        final_price = Decimal(str(data["final_price"]))
-        bonus_used = data["bonus_used"]
-
-        user = await crud.get_user_by_telegram_id(session, message.from_user.id)
-        product = await crud.get_product_by_id(session, product_id)
-
-        # Показываем подтверждение
-        await state.update_data(apple_email=email)
-
-        await message.answer(
-            f"📧 **Проверьте данные:**\n\n"
-            f"Apple ID: `{email}`\n\n"
-            f"Всё верно?",
-            reply_markup=get_apple_email_confirmation_keyboard(0),
-            parse_mode="Markdown"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in process_apple_email: {e}", exc_info=True)
-        await message.answer(
-            "❌ Ошибка обработки email",
-            reply_markup=get_back_to_menu_keyboard()
-        )
-        await state.clear()
-
-
-@router.callback_query(F.data.startswith("confirm_email:"))
-async def confirm_apple_email(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
-    """Подтверждение Apple ID email и создание заказа"""
-    try:
-        data = await state.get_data()
-        product_id = data["product_id"]
-        final_price = Decimal(str(data["final_price"]))
-        bonus_used = data["bonus_used"]
-        apple_email = data["apple_email"]
-
-        user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
-        product = await crud.get_product_by_id(session, product_id)
-
-        # Создаём заказ с Apple ID email
-        order = await crud.create_order(
-            session=session,
-            user_id=user.id,
-            product_id=product_id,
-            amount=final_price,
-            apple_id_email=apple_email,
-        )
-
-        # Списываем бонус если был
-        if bonus_used > 0:
-            await crud.update_user_bonus(session, user.id, -bonus_used)
-
-        await state.clear()
-
-        bonus_text = f"\n💰 Использовано бонусов: {bonus_used}₽" if bonus_used > 0 else ""
-
-        await callback.message.edit_text(
-            f"🛒 **Ваш заказ #{order.id}**\n\n"
-            f"{product.emoji} {product.name}\n"
-            f"📧 Apple ID: `{apple_email}`\n"
-            f"💵 Сумма: {final_price}₽{bonus_text}\n\n"
-            f"Выберите способ оплаты:",
-            reply_markup=get_payment_methods_keyboard(order.id),
-            parse_mode="Markdown"
-        )
-        await callback.answer()
-
-    except Exception as e:
-        logger.error(f"Error in confirm_apple_email: {e}", exc_info=True)
-        await callback.answer("❌ Ошибка создания заказа", show_alert=True)
-        await state.clear()
-
-
-@router.callback_query(F.data.startswith("change_email:"))
-async def change_apple_email(callback: CallbackQuery, state: FSMContext):
-    """Изменить введённый email"""
-    await callback.message.edit_text(
-        "📧 Введите Apple ID email заново:"
-    )
-    await callback.answer()
-
-
 @router.callback_query(F.data.startswith("pay:"))
 async def process_payment_method(callback: CallbackQuery, session: AsyncSession):
     """Обработка выбора способа оплаты"""
@@ -222,8 +103,8 @@ async def process_payment_method(callback: CallbackQuery, session: AsyncSession)
             await callback.answer("❌ Заказ не найден", show_alert=True)
             return
 
-        if method == "yookassa":
-            await handle_yookassa_payment(callback, session, order)
+        if method == "manual":
+            await handle_manual_payment(callback, session, order)
         elif method == "stars":
             await handle_stars_payment(callback, session, order)
         elif method == "crypto":
@@ -236,28 +117,55 @@ async def process_payment_method(callback: CallbackQuery, session: AsyncSession)
         await callback.answer("❌ Ошибка обработки платежа", show_alert=True)
 
 
-async def handle_yookassa_payment(callback: CallbackQuery, session: AsyncSession, order):
-    """Обработка оплаты через ЮКассу"""
-    # TODO: Интеграция с ЮКассой API
-    # Здесь должно быть создание платежа через API ЮКассы
-    # payment_url = create_yookassa_payment(order.amount, order.id)
+async def handle_manual_payment(callback: CallbackQuery, session: AsyncSession, order):
+    """Обработка ручного перевода на карту"""
+    payment_id = f"manual_{order.id}_{int(datetime.utcnow().timestamp())}"
+    await crud.update_order_payment(session, order.id, payment_id, PaymentMethodEnum.manual)
 
-    payment_id = f"yk_{order.id}_{int(datetime.utcnow().timestamp())}"
-    await crud.update_order_payment(session, order.id, payment_id, PaymentMethodEnum.yookassa)
-
+    # Отправляем реквизиты клиенту
     await callback.message.edit_text(
-        f"💳 **Оплата ЮКасса**\n\n"
+        f"💳 **Перевод на карту**\n\n"
         f"Заказ #{order.id}\n"
-        f"Сумма: {order.amount}₽\n\n"
-        f"⚠️ После оплаты нажмите кнопку 'Я оплатил'\n"
-        f"Администратор проверит платёж и выдаст товар.",
-        reply_markup=get_back_to_menu_keyboard(),
+        f"💰 Сумма: {order.amount}₽\n\n"
+        f"📋 **Реквизиты:**\n"
+        f"Карта: `{settings.ADMIN_CARD_NUMBER}`\n"
+        f"Получатель: {settings.ADMIN_CARD_OWNER}\n\n"
+        f"После перевода нажмите кнопку ниже.\n"
+        f"⏱ Проверка обычно занимает до 5 минут.",
+        reply_markup=get_payment_confirmation_keyboard(payment_id="manual"),
         parse_mode="Markdown"
     )
-    await callback.answer(
-        "ℹ️ Функция ЮКассы будет добавлена после настройки магазина",
-        show_alert=True
-    )
+
+    # Уведомляем админа о новом платеже
+    try:
+        from aiogram import Bot
+        bot = callback.bot
+        admin_id = settings.ADMIN_ID
+
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import InlineKeyboardButton
+
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"admin:confirm_payment:{order.id}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin:decline_payment:{order.id}")
+        )
+
+        await bot.send_message(
+            admin_id,
+            f"💳 **Новый ручной платёж**\n\n"
+            f"Заказ #{order.id}\n"
+            f"👤 @{callback.from_user.username or 'noname'} (ID: {callback.from_user.id})\n"
+            f"📦 {order.product.name}\n"
+            f"💰 Сумма: {order.amount}₽\n\n"
+            f"Проверьте поступление средств и подтвердите:",
+            reply_markup=builder.as_markup(),
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"Failed to notify admin about manual payment: {e}")
+
+    await callback.answer()
 
 
 async def handle_stars_payment(callback: CallbackQuery, session: AsyncSession, order):

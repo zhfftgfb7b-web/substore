@@ -799,3 +799,88 @@ async def show_user_orders(callback: CallbackQuery, session: AsyncSession):
     except Exception as e:
         logger.error(f"Error in show_user_orders: {e}", exc_info=True)
         await callback.answer("❌ Ошибка", show_alert=True)
+
+
+# ==================== MANUAL PAYMENT CONFIRMATION ====================
+
+@router.callback_query(F.data.startswith("admin:confirm_payment:"))
+async def confirm_manual_payment(callback: CallbackQuery, session: AsyncSession, bot: Bot):
+    """Подтвердить ручной платеж"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        order_id = int(callback.data.split(":")[2])
+        order = await crud.get_order_by_id(session, order_id)
+
+        if not order:
+            await callback.answer("❌ Заказ не найден", show_alert=True)
+            return
+
+        # Помечаем как оплаченный
+        await crud.mark_order_paid(session, order_id)
+
+        # Обрабатываем выдачу товара
+        from bot.handlers.payment import process_order_delivery
+
+        # Создаем фейковое сообщение для process_order_delivery
+        class FakeMessage:
+            def __init__(self, chat_id, bot):
+                self.chat = type('obj', (object,), {'id': chat_id})()
+                self.bot = bot
+
+            async def answer(self, text, **kwargs):
+                return await self.bot.send_message(self.chat.id, text, **kwargs)
+
+        fake_msg = FakeMessage(order.user.telegram_id, bot)
+        await process_order_delivery(fake_msg, session, order)
+
+        await callback.message.edit_text(
+            callback.message.text + "\n\n✅ Платеж подтвержден, товар выдан",
+            parse_mode="Markdown"
+        )
+        await callback.answer("✅ Платеж подтвержден", show_alert=True)
+
+    except Exception as e:
+        logger.error(f"Error in confirm_manual_payment: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:decline_payment:"))
+async def decline_manual_payment(callback: CallbackQuery, session: AsyncSession, bot: Bot):
+    """Отклонить ручной платеж"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        order_id = int(callback.data.split(":")[2])
+        order = await crud.get_order_by_id(session, order_id)
+
+        if not order:
+            await callback.answer("❌ Заказ не найден", show_alert=True)
+            return
+
+        # Отменяем заказ
+        await crud.cancel_order(session, order_id)
+
+        # Уведомляем пользователя
+        try:
+            await bot.send_message(
+                order.user.telegram_id,
+                f"❌ Платеж по заказу #{order_id} не подтвержден.\n\n"
+                f"Обратитесь в поддержку для уточнения деталей."
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify user {order.user.telegram_id}: {e}")
+
+        await callback.message.edit_text(
+            callback.message.text + "\n\n❌ Платеж отклонен",
+            parse_mode="Markdown"
+        )
+        await callback.answer("❌ Платеж отклонен", show_alert=True)
+
+    except Exception as e:
+        logger.error(f"Error in decline_manual_payment: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)
