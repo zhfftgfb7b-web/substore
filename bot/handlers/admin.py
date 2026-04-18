@@ -112,6 +112,60 @@ async def show_admin_menu(callback: CallbackQuery, session: AsyncSession):
 # ==================== ORDERS ====================
 
 @router.callback_query(F.data == "admin:orders")
+async def show_orders_menu(callback: CallbackQuery, session: AsyncSession):
+    """Показать меню заказов с фильтрами"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        # Получаем статистику по заказам
+        from database.models import OrderStatusEnum
+
+        # Заказы требующие действия (paid + manual delivery)
+        pending_orders = await crud.get_pending_manual_orders(session)
+
+        # Заказы выполненные сегодня
+        from datetime import datetime, timedelta
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        all_orders_today = await crud.get_orders_by_status(session, OrderStatusEnum.delivered, limit=None)
+        delivered_today = [o for o in all_orders_today if o.delivered_at and o.delivered_at >= today_start]
+
+        orders_text = (
+            "📋 **Заказы**\n\n"
+            f"🆕 Требуют действия: {len(pending_orders)}\n"
+            f"✅ Сегодня выполнено: {len(delivered_today)}\n\n"
+            f"Выберите фильтр:"
+        )
+
+        # Клавиатура с фильтрами
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import InlineKeyboardButton
+
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            InlineKeyboardButton(text=f"🆕 Требуют действия ({len(pending_orders)})", callback_data="admin:orders:pending")
+        )
+        builder.row(
+            InlineKeyboardButton(text=f"✅ Сегодня выполнено ({len(delivered_today)})", callback_data="admin:orders:today")
+        )
+        builder.row(
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:menu")
+        )
+
+        await callback.message.edit_text(
+            orders_text,
+            reply_markup=builder.as_markup(),
+            parse_mode="Markdown"
+        )
+        await callback.answer()
+
+    except Exception as e:
+        logger.error(f"Error in show_orders_menu: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка загрузки заказов", show_alert=True)
+
+
+@router.callback_query(F.data == "admin:orders:pending")
 async def show_pending_orders(callback: CallbackQuery, session: AsyncSession):
     """Показать заказы требующие ручной обработки"""
     if not is_admin(callback.from_user.id):
@@ -123,35 +177,82 @@ async def show_pending_orders(callback: CallbackQuery, session: AsyncSession):
 
         if not orders:
             await callback.message.edit_text(
-                "📦 **Заказы**\n\n"
-                "Нет заказов требующих обработки ✅",
-                reply_markup=get_admin_menu_keyboard()
+                "📦 **Заказы требующие действия**\n\n"
+                "Нет заказов ✅",
+                reply_markup=get_back_to_menu_keyboard()
             )
             await callback.answer()
             return
 
         orders_text = f"📦 **Заказов к обработке:** {len(orders)}\n\n"
 
-        for order in orders:
-            apple_email = f"\n📧 Apple ID: {order.apple_id_email}" if order.apple_id_email else ""
+        for order in orders[:10]:  # Показываем первые 10
+            apple_email = f"\n📧 {order.apple_id_email}" if order.apple_id_email else ""
 
             orders_text += (
                 f"🆔 **Заказ #{order.id}**\n"
-                f"👤 @{order.user.username or 'noname'} (ID: {order.user.telegram_id})\n"
-                f"📦 {order.product.name}\n"
-                f"💰 {order.amount}₽{apple_email}\n"
-                f"📅 {order.created_at.strftime('%d.%m.%Y %H:%M')}\n"
+                f"👤 @{order.user.username or 'noname'}\n"
+                f"📦 {order.product.emoji} {order.product.name}\n"
+                f"💰 {order.amount:,.0f}₽{apple_email}\n"
+                f"📅 {order.created_at.strftime('%d.%m %H:%M')}\n\n"
             )
 
         await callback.message.edit_text(
             orders_text,
-            reply_markup=get_admin_order_keyboard(orders[0].id) if orders else get_admin_menu_keyboard(),
+            reply_markup=get_admin_order_keyboard(orders[0].id) if orders else get_back_to_menu_keyboard(),
             parse_mode="Markdown"
         )
         await callback.answer()
 
     except Exception as e:
         logger.error(f"Error in show_pending_orders: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка загрузки заказов", show_alert=True)
+
+
+@router.callback_query(F.data == "admin:orders:today")
+async def show_today_orders(callback: CallbackQuery, session: AsyncSession):
+    """Показать заказы выполненные сегодня"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    try:
+        from database.models import OrderStatusEnum
+        from datetime import datetime
+
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        all_orders = await crud.get_orders_by_status(session, OrderStatusEnum.delivered, limit=None)
+        orders_today = [o for o in all_orders if o.delivered_at and o.delivered_at >= today_start]
+
+        if not orders_today:
+            await callback.message.edit_text(
+                "📦 **Заказы выполненные сегодня**\n\n"
+                "Нет заказов",
+                reply_markup=get_back_to_menu_keyboard()
+            )
+            await callback.answer()
+            return
+
+        total_revenue = sum(float(o.amount) for o in orders_today)
+
+        orders_text = f"✅ **Выполнено сегодня:** {len(orders_today)}\n"
+        orders_text += f"💰 Выручка: {total_revenue:,.0f}₽\n\n"
+
+        for order in orders_today[:10]:  # Показываем первые 10
+            orders_text += (
+                f"#{order.id} {order.product.emoji} {order.product.name} — {order.amount:,.0f}₽\n"
+                f"@{order.user.username or 'noname'} ({order.delivered_at.strftime('%H:%M')})\n\n"
+            )
+
+        await callback.message.edit_text(
+            orders_text,
+            reply_markup=get_back_to_menu_keyboard(),
+            parse_mode="Markdown"
+        )
+        await callback.answer()
+
+    except Exception as e:
+        logger.error(f"Error in show_today_orders: {e}", exc_info=True)
         await callback.answer("❌ Ошибка загрузки заказов", show_alert=True)
 
 
@@ -301,7 +402,7 @@ async def select_product_for_keys(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminStates.waiting_keys)
 async def process_keys_input(message: Message, session: AsyncSession, state: FSMContext):
-    """Обработка ввода ключей"""
+    """Обработка ввода ключей (текст или .txt файл)"""
     if not is_admin(message.from_user.id):
         return
 
@@ -309,20 +410,46 @@ async def process_keys_input(message: Message, session: AsyncSession, state: FSM
         data = await state.get_data()
         product_id = data["product_id"]
 
-        # Парсим ключи
-        keys = [line.strip() for line in message.text.split("\n") if line.strip()]
+        keys = []
+
+        # Проверяем, есть ли прикрепленный документ
+        if message.document:
+            # Поддержка .txt файлов
+            if not message.document.file_name.endswith('.txt'):
+                await message.answer("❌ Поддерживаются только .txt файлы")
+                return
+
+            # Скачиваем файл
+            file = await message.bot.get_file(message.document.file_id)
+            file_content = await message.bot.download_file(file.file_path)
+
+            # Читаем содержимое
+            text_content = file_content.read().decode('utf-8')
+            keys = [line.strip() for line in text_content.split("\n") if line.strip()]
+
+        elif message.text:
+            # Парсим ключи из текста сообщения
+            keys = [line.strip() for line in message.text.split("\n") if line.strip()]
+
+        else:
+            await message.answer("❌ Отправьте ключи текстом или .txt файлом")
+            return
 
         if not keys:
             await message.answer("❌ Не найдено ни одного ключа")
             return
 
-        # Добавляем ключи
+        # Добавляем ключи (дубликаты автоматически фильтруются в CRUD)
         added_count = await crud.add_keys_to_pool(session, product_id, keys)
 
         await state.clear()
 
+        # Получаем обновленную статистику
+        stats = await crud.get_key_stats(session, product_id)
+
         await message.answer(
-            f"✅ Добавлено ключей: {added_count}",
+            f"✅ Добавлено ключей: {added_count}\n"
+            f"📦 Теперь в наличии: {stats['available']} шт",
             reply_markup=get_admin_menu_keyboard()
         )
 

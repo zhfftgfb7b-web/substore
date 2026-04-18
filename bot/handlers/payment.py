@@ -254,6 +254,7 @@ async def process_order_delivery(message: Message, session: AsyncSession, order)
     """Обработка выдачи товара после оплаты"""
     try:
         product = order.product
+        bot = message.bot
 
         # Auto выдача - берём ключ из пула
         if product.delivery_type == DeliveryTypeEnum.auto:
@@ -282,8 +283,13 @@ async def process_order_delivery(message: Message, session: AsyncSession, order)
                     reply_markup=get_back_to_menu_keyboard(),
                     parse_mode="Markdown"
                 )
+
+                # Уведомляем админа об автоматической продаже
+                from bot.utils.notifications import notify_admin_new_sale_auto
+                await notify_admin_new_sale_auto(bot, order)
+
             else:
-                # Ключи закончились - уведомляем админа
+                # Ключи закончились - уведомляем клиента и админа
                 await message.answer(
                     f"✅ Оплата прошла успешно!\n\n"
                     f"⏳ Ваш заказ #{order.id} передан администратору для выдачи.\n"
@@ -291,7 +297,9 @@ async def process_order_delivery(message: Message, session: AsyncSession, order)
                     reply_markup=get_back_to_menu_keyboard()
                 )
 
-                # TODO: Уведомить админа
+                # Уведомляем админа о заказе без ключей (как manual)
+                from bot.utils.notifications import notify_admin_new_sale_manual
+                await notify_admin_new_sale_manual(bot, order)
                 logger.warning(f"No keys available for auto product {product.id}, order {order.id}")
 
         # Manual выдача - уведомляем админа
@@ -304,7 +312,9 @@ async def process_order_delivery(message: Message, session: AsyncSession, order)
                 reply_markup=get_back_to_menu_keyboard()
             )
 
-            # TODO: Уведомить админа о новом заказе
+            # Уведомляем админа о ручном заказе
+            from bot.utils.notifications import notify_admin_new_sale_manual
+            await notify_admin_new_sale_manual(bot, order)
             logger.info(f"Manual order {order.id} paid, waiting for admin")
 
     except Exception as e:

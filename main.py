@@ -38,29 +38,6 @@ async def set_bot_commands(bot: Bot):
     await bot.set_my_commands(commands)
 
 
-async def check_low_stock_task():
-    """Фоновая задача: проверка малого запаса ключей"""
-    try:
-        from database.engine import get_db_engine
-
-        db_engine = get_db_engine()
-
-        async for session in db_engine.get_session():
-            # Получаем продукты с малым запасом
-            low_stock_products = await crud.get_low_stock_products(session, threshold=3)
-
-            if low_stock_products:
-                # TODO: Уведомить админа через бот
-                logger.warning(
-                    f"Low stock alert: {len(low_stock_products)} products have less than 3 keys"
-                )
-                for product, available in low_stock_products:
-                    logger.warning(f"  - {product.name}: {available} keys")
-
-    except Exception as e:
-        logger.error(f"Error in check_low_stock_task: {e}", exc_info=True)
-
-
 async def send_renewal_reminders_task(bot: Bot):
     """Фоновая задача: отправка напоминаний о продлении подписок"""
     try:
@@ -114,12 +91,14 @@ async def on_startup(bot: Bot, dispatcher: Dispatcher):
     # Запускаем scheduler для фоновых задач
     scheduler = AsyncIOScheduler(timezone="UTC")
 
-    # Каждый час - проверка запасов ключей
+    # Каждый час - проверка запасов ключей (уведомления админу)
+    from bot.scheduler.low_stock_check import check_low_stock_job
     scheduler.add_job(
-        check_low_stock_task,
+        check_low_stock_job,
         trigger="cron",
         hour="*",  # Каждый час
         minute=0,
+        args=[bot],
     )
 
     # Каждый день в 10:00 UTC - напоминания о продлении
@@ -132,7 +111,7 @@ async def on_startup(bot: Bot, dispatcher: Dispatcher):
     )
 
     scheduler.start()
-    logger.info("Scheduler started")
+    logger.info("Scheduler started with low_stock_check and renewal reminders")
 
     # Сохраняем scheduler в dispatcher для доступа
     dispatcher["scheduler"] = scheduler
