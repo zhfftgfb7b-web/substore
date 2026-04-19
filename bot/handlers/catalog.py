@@ -97,6 +97,7 @@ async def show_product_card(callback: CallbackQuery, session: AsyncSession):
 
         # Для auto продуктов - проверяем наличие ключей
         available_count = 0
+        waitlist_count = 0
         availability_text = ""
 
         if product.delivery_type == DeliveryTypeEnum.auto:
@@ -104,7 +105,12 @@ async def show_product_card(callback: CallbackQuery, session: AsyncSession):
             if available_count > 0:
                 availability_text = f"\n✅ В наличии: {available_count} шт."
             else:
-                availability_text = "\n❌ Нет в наличии"
+                # Нет в наличии → показываем waitlist
+                waitlist_count = await crud.get_waitlist_count_for_product(session, product_id)
+                if waitlist_count > 0:
+                    availability_text = f"\n⏳ Временно нет в наличии\n📋 {waitlist_count} чел. уже ждут"
+                else:
+                    availability_text = "\n⏳ Временно нет в наличии"
         else:
             availability_text = "\n⏱ Выдача до 2 часов"
 
@@ -119,7 +125,7 @@ async def show_product_card(callback: CallbackQuery, session: AsyncSession):
 
         await callback.message.edit_text(
             card_text,
-            reply_markup=get_product_keyboard(product, available_count),
+            reply_markup=get_product_keyboard(product, available_count, waitlist_count),
             parse_mode="Markdown"
         )
         await callback.answer()
@@ -130,13 +136,3 @@ async def show_product_card(callback: CallbackQuery, session: AsyncSession):
     except Exception as e:
         logger.error(f"Error in show_product_card: {e}", exc_info=True)
         await callback.answer("❌ Ошибка при загрузке продукта", show_alert=True)
-
-
-@router.callback_query(F.data == "out_of_stock")
-async def handle_out_of_stock(callback: CallbackQuery):
-    """Обработка нажатия на "Нет в наличии" """
-    await callback.answer(
-        "😔 К сожалению, товар закончился.\n"
-        "Мы уже пополняем запасы!",
-        show_alert=True
-    )

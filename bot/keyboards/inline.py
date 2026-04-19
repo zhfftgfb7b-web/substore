@@ -84,14 +84,19 @@ def get_products_keyboard(products: list[Product]) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_product_keyboard(product: Product, available_count: int = 0) -> InlineKeyboardMarkup:
+def get_product_keyboard(product: Product, available_count: int = 0, waitlist_count: int = 0) -> InlineKeyboardMarkup:
     """Клавиатура карточки продукта"""
     builder = InlineKeyboardBuilder()
 
-    # Кнопка "Купить" или "Нет в наличии"
+    # Кнопка "Купить" или "Уведомить меня" (waitlist)
     if product.delivery_type.value == "auto" and available_count == 0:
+        # Товар закончился → waitlist
+        waitlist_text = "🔔 Уведомить меня"
+        if waitlist_count > 0:
+            waitlist_text = f"🔔 Уведомить ({waitlist_count} ждут)"
+
         builder.row(
-            InlineKeyboardButton(text="❌ Нет в наличии", callback_data="out_of_stock")
+            InlineKeyboardButton(text=waitlist_text, callback_data=f"waitlist:add:{product.id}")
         )
     else:
         builder.row(
