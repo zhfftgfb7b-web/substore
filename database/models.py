@@ -173,3 +173,19 @@ class Subscription(Base):
     user: Mapped["User"] = relationship("User", back_populates="subscriptions")
     product: Mapped["Product"] = relationship("Product", back_populates="subscriptions")
     order: Mapped["Order"] = relationship("Order", back_populates="subscription")
+
+
+class ProductWaitlist(Base):
+    """Модель списка ожидания продукта (когда товар закончился)"""
+    __tablename__ = "product_waitlist"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    notified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Relationships
+    user: Mapped["User"] = relationship("User")
+    product: Mapped["Product"] = relationship("Product")

@@ -44,7 +44,20 @@ async def start_purchase(
         if product.delivery_type == DeliveryTypeEnum.auto:
             available = await crud.get_available_keys_count(session, product_id)
             if available == 0:
-                await callback.answer("😔 Товар закончился", show_alert=True)
+                # Товар закончился - предлагаем добавиться в waitlist
+                waitlist_count = await crud.get_waitlist_count_for_product(session, product_id)
+
+                from bot.keyboards.inline import get_waitlist_keyboard
+                await callback.message.edit_text(
+                    f"⏳ **Временно нет в наличии**\n\n"
+                    f"{product.emoji} {product.name}\n\n"
+                    f"Обычно пополняем в течение 2-4 часов.\n"
+                    f"Хотите — пришлём уведомление как только появится?\n\n"
+                    f"{'📋 ' + str(waitlist_count) + ' чел. уже ждут' if waitlist_count > 0 else ''}",
+                    reply_markup=get_waitlist_keyboard(product_id),
+                    parse_mode="Markdown"
+                )
+                await callback.answer()
                 return
 
         # Получаем пользователя
@@ -356,3 +369,68 @@ async def cancel_order_handler(callback: CallbackQuery):
         reply_markup=get_back_to_menu_keyboard()
     )
     await callback.answer()
+
+
+# ==================== WAITLIST ====================
+
+@router.callback_query(F.data.startswith("waitlist:add:"))
+async def add_to_waitlist_handler(callback: CallbackQuery, session: AsyncSession):
+    """Добавить пользователя в waitlist"""
+    try:
+        product_id = int(callback.data.split(":")[2])
+        user_id = callback.from_user.id
+
+        # Получаем user
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user:
+            await callback.answer("❌ Ошибка: пользователь не найден", show_alert=True)
+            return
+
+        # Получаем product
+        product = await crud.get_product_by_id(session, product_id)
+        if not product:
+            await callback.answer("❌ Продукт не найден", show_alert=True)
+            return
+
+        # Добавляем в waitlist
+        added = await crud.add_to_waitlist(session, user.id, product_id)
+
+        if added:
+            # Уведомляем админа о предзаказе
+            from config import settings
+
+            bot = callback.bot
+            waitlist_count = await crud.get_waitlist_count_for_product(session, product_id)
+
+            try:
+                await bot.send_message(
+                    settings.ADMIN_ID,
+                    f"📋 **Новый предзаказ**\n\n"
+                    f"{product.emoji} {product.name}\n"
+                    f"👤 @{callback.from_user.username or 'noname'}\n\n"
+                    f"Всего в очереди: {waitlist_count} чел.\n\n"
+                    f"💡 Пополни товар через /admin → Добавить ключи",
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify admin about waitlist: {e}")
+
+            await callback.message.edit_text(
+                f"✅ **Отлично!**\n\n"
+                f"Пришлём уведомление когда {product.name} появится.\n\n"
+                f"Обычно это 2-4 часа.",
+                reply_markup=get_back_to_menu_keyboard()
+            )
+            await callback.answer("✅ Добавлено в список ожидания")
+        else:
+            await callback.message.edit_text(
+                f"ℹ️ **Вы уже в списке ожидания**\n\n"
+                f"{product.emoji} {product.name}\n\n"
+                f"Пришлём уведомление как только товар появится!",
+                reply_markup=get_back_to_menu_keyboard()
+            )
+            await callback.answer()
+
+    except Exception as e:
+        logger.error(f"Error in add_to_waitlist_handler: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)

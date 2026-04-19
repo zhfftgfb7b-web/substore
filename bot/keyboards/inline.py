@@ -346,3 +346,19 @@ def get_user_actions_keyboard(user_id: int, is_banned: bool) -> InlineKeyboardMa
     )
 
     return builder.as_markup()
+
+
+# ==================== WAITLIST ====================
+
+def get_waitlist_keyboard(product_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура для товара закончившегося (waitlist)"""
+    builder = InlineKeyboardBuilder()
+
+    builder.row(
+        InlineKeyboardButton(text="🔔 Уведомить меня", callback_data=f"waitlist:add:{product_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="⬅️ Другой продукт", callback_data="catalog")
+    )
+
+    return builder.as_markup()

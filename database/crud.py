@@ -756,3 +756,90 @@ async def get_payment_methods_breakdown(session: AsyncSession) -> dict[str, dict
             }
 
     return breakdown
+
+
+# ==================== PRODUCT WAITLIST ====================
+
+async def add_to_waitlist(session: AsyncSession, user_id: int, product_id: int) -> bool:
+    """
+    Добавить пользователя в список ожидания продукта
+
+    Returns:
+        bool: True если добавлен, False если уже в списке
+    """
+    from database.models import ProductWaitlist
+
+    # Проверяем, не добавлен ли уже
+    result = await session.execute(
+        select(ProductWaitlist).where(
+            and_(
+                ProductWaitlist.user_id == user_id,
+                ProductWaitlist.product_id == product_id,
+                ProductWaitlist.notified == False
+            )
+        )
+    )
+    existing = result.scalar_one_or_none()
+
+    if existing:
+        return False
+
+    # Добавляем в waitlist
+    waitlist_entry = ProductWaitlist(
+        user_id=user_id,
+        product_id=product_id
+    )
+    session.add(waitlist_entry)
+    await session.commit()
+
+    return True
+
+
+async def get_waitlist_for_product(session: AsyncSession, product_id: int) -> list:
+    """Получить список ожидающих пользователей для продукта (отсортированный по времени)"""
+    from database.models import ProductWaitlist, User
+
+    result = await session.execute(
+        select(ProductWaitlist)
+        .options(selectinload(ProductWaitlist.user), selectinload(ProductWaitlist.product))
+        .where(
+            and_(
+                ProductWaitlist.product_id == product_id,
+                ProductWaitlist.notified == False
+            )
+        )
+        .order_by(ProductWaitlist.requested_at.asc())
+    )
+
+    return list(result.scalars().all())
+
+
+async def mark_waitlist_notified(session: AsyncSession, waitlist_ids: list[int]):
+    """Пометить записи waitlist как уведомленные"""
+    from database.models import ProductWaitlist
+    from datetime import datetime
+
+    await session.execute(
+        update(ProductWaitlist)
+        .where(ProductWaitlist.id.in_(waitlist_ids))
+        .values(notified=True, notified_at=datetime.utcnow())
+    )
+    await session.commit()
+
+
+async def get_waitlist_count_for_product(session: AsyncSession, product_id: int) -> int:
+    """Получить количество ожидающих для продукта"""
+    from database.models import ProductWaitlist
+
+    result = await session.execute(
+        select(func.count())
+        .select_from(ProductWaitlist)
+        .where(
+            and_(
+                ProductWaitlist.product_id == product_id,
+                ProductWaitlist.notified == False
+            )
+        )
+    )
+
+    return result.scalar() or 0

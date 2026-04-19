@@ -120,8 +120,72 @@ async def on_startup(bot: Bot, dispatcher: Dispatcher):
         args=[bot],
     )
 
+    # ==================== МАРКЕТИНГОВАЯ АВТОМАТИЗАЦИЯ ====================
+    from bot.scheduler.marketing_automation import (
+        abandoned_cart_job,
+        reengagement_job,
+        renewal_reminder_job,
+        welcome_day2_job,
+        welcome_day5_job,
+        recommendations_job,
+    )
+
+    # Каждые 2 часа - брошенная корзина
+    scheduler.add_job(
+        abandoned_cart_job,
+        trigger="cron",
+        hour="*/2",
+        minute=15,
+        args=[bot],
+    )
+
+    # Каждый день в 11:00 UTC - напоминание о продлении подписки
+    scheduler.add_job(
+        renewal_reminder_job,
+        trigger="cron",
+        hour=11,
+        minute=0,
+        args=[bot],
+    )
+
+    # Каждый день в 14:00 UTC - re-engagement неактивных
+    scheduler.add_job(
+        reengagement_job,
+        trigger="cron",
+        hour=14,
+        minute=0,
+        args=[bot],
+    )
+
+    # Каждый день в 12:00 UTC - welcome день 2
+    scheduler.add_job(
+        welcome_day2_job,
+        trigger="cron",
+        hour=12,
+        minute=0,
+        args=[bot],
+    )
+
+    # Каждый день в 13:00 UTC - welcome день 5
+    scheduler.add_job(
+        welcome_day5_job,
+        trigger="cron",
+        hour=13,
+        minute=0,
+        args=[bot],
+    )
+
+    # Каждый день в 15:00 UTC - персональные рекомендации
+    scheduler.add_job(
+        recommendations_job,
+        trigger="cron",
+        hour=15,
+        minute=0,
+        args=[bot],
+    )
+
     scheduler.start()
-    logger.info("Scheduler started with low_stock_check, renewal reminders, and daily summary")
+    logger.info("Scheduler started: stock check, renewal, daily summary, marketing automation (6 jobs)")
 
     # Сохраняем scheduler в dispatcher для доступа
     dispatcher["scheduler"] = scheduler

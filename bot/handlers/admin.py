@@ -447,6 +447,59 @@ async def process_keys_input(message: Message, session: AsyncSession, state: FSM
         # Получаем обновленную статистику
         stats = await crud.get_key_stats(session, product_id)
 
+        # Рассылка waitlist — уведомляем ожидающих клиентов
+        from datetime import datetime, timedelta
+        waitlist = await crud.get_waitlist_for_product(session, product_id)
+
+        if waitlist:
+            notified_count = 0
+            product = await crud.get_product_by_id(session, product_id)
+
+            for entry in waitlist:
+                try:
+                    # Формируем время ожидания
+                    wait_time = datetime.utcnow() - entry.requested_at
+                    hours_ago = int(wait_time.total_seconds() / 3600)
+                    time_text = f"{hours_ago} час{'а' if 1 < hours_ago < 5 else 'ов'} назад" if hours_ago > 0 else "только что"
+
+                    from aiogram.utils.keyboard import InlineKeyboardBuilder
+                    from aiogram.types import InlineKeyboardButton
+
+                    builder = InlineKeyboardBuilder()
+                    builder.row(
+                        InlineKeyboardButton(text="🛒 Купить сейчас", callback_data=f"buy:{product_id}")
+                    )
+                    builder.row(
+                        InlineKeyboardButton(text="⏳ Не сейчас", callback_data="catalog")
+                    )
+
+                    await message.bot.send_message(
+                        entry.user.telegram_id,
+                        f"🎉 **{product.name} снова в наличии!**\n\n"
+                        f"Вы интересовались {product.emoji} {product.name}\n"
+                        f"{time_text}. Сейчас в наличии {stats['available']} шт.\n\n"
+                        f"💰 Цена: {product.price:,.0f}₽\n"
+                        f"⚡️ Выдача моментально",
+                        reply_markup=builder.as_markup(),
+                        parse_mode="Markdown"
+                    )
+                    notified_count += 1
+
+                except Exception as e:
+                    logger.error(f"Failed to notify waitlist user {entry.user.telegram_id}: {e}")
+
+            # Помечаем как уведомленных
+            if notified_count > 0:
+                await crud.mark_waitlist_notified(session, [e.id for e in waitlist])
+
+                await message.answer(
+                    f"✅ Добавлено ключей: {added_count}\n"
+                    f"📦 Теперь в наличии: {stats['available']} шт\n\n"
+                    f"📬 Уведомлено клиентов: {notified_count}",
+                    reply_markup=get_admin_menu_keyboard()
+                )
+                return
+
         await message.answer(
             f"✅ Добавлено ключей: {added_count}\n"
             f"📦 Теперь в наличии: {stats['available']} шт",
